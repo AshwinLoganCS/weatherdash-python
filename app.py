@@ -141,7 +141,13 @@ def locate_by_ip():
 # ---------- Sidebar: query + unit toggle + autosuggest + geolocate ----------
 with st.sidebar:
     st.write("City (you can add state/country, e.g. 'Concord, NC, US')")
-    q = st.text_input("", value="Berkeley, CA", placeholder="City, State, Country")
+    q = st.text_input(
+    "",
+    value=st.session_state.get("q", "Berkeley, CA"),
+    key="q",
+    placeholder="City, State, Country",
+)
+
 
     cols = st.columns(2)
     unit = st.session_state.get("unit", "C")
@@ -161,12 +167,13 @@ with st.sidebar:
 
     # Geolocate
     if st.button("📍 Use my location", help="IP-based location (no GPS)"):
-        ip_guess = locate_by_ip()
-        if ip_guess:
-            q = ip_guess
-            st.experimental_rerun()
-        else:
-            st.info("Could not determine location.")
+    ip_guess = locate_by_ip()
+    if ip_guess:
+        st.session_state["q"] = ip_guess   # update the bound input
+        st.rerun()                          # <-- modern API
+    else:
+        st.warning("Could not determine location.")
+
 
 # ---------- Resolve place ----------
 place = None
