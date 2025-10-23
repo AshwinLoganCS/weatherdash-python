@@ -97,15 +97,46 @@ def city_label(c):
     return f"{c.get('name')}, {c.get('admin1','') or ''} {c.get('country_code','') or ''}".strip()
 
 def locate_by_ip():
-    """Best-effort IP geolocation (no key)."""
-    try:
-        r = requests.get("https://ipapi.co/json", timeout=10)
-        r.raise_for_status()
-        j = r.json()
-        q = f"{j.get('city','')}, {j.get('region_code','')}, {j.get('country_code','')}"
-        return q.strip(", ")
-    except Exception:
-        return ""
+    """
+    Best-effort IP geolocation with multiple fallbacks.
+    Returns a string like 'City, ST, CC' or '' if all providers fail.
+    """
+    providers = [
+        # 1) ipapi.co
+        ("https://ipapi.co/json", lambda j: (
+            j.get("city",""), j.get("region_code","") or j.get("region",""), j.get("country_code","")
+        )),
+        # 2) ipinfo.io (no key, limited rate)
+        ("https://ipinfo.io/json", lambda j: (
+            j.get("city",""), j.get("region",""), j.get("country","")
+        )),
+        # 3) ipwho.is
+        ("https://ipwho.is/", lambda j: (
+            j.get("city",""), j.get("region","") or j.get("region_code",""), j.get("country_code","")
+        )),
+        # 4) freeipapi.com
+        ("https://freeipapi.com/api/json", lambda j: (
+            j.get("cityName",""), j.get("regionName",""), j.get("countryCode","")
+        )),
+        # 5) ip-api.com (plaintext JSON; generous, but keep last)
+        ("http://ip-api.com/json", lambda j: (
+            j.get("city",""), j.get("region","") or j.get("regionName",""), j.get("countryCode","")
+        )),
+    ]
+
+    for url, pick in providers:
+        try:
+            r = requests.get(url, timeout=8)
+            r.raise_for_status()
+            j = r.json()
+            city, region, cc = pick(j)
+            parts = [p for p in [city, region, cc] if p]
+            if parts and parts[0]:
+                return ", ".join(parts)
+        except Exception:
+            continue
+    return ""
+
 
 # ---------- Sidebar: query + unit toggle + autosuggest + geolocate ----------
 with st.sidebar:
