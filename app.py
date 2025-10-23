@@ -29,12 +29,89 @@ st.markdown(PILL_CSS, unsafe_allow_html=True)
 
 # -------------------- Helpers --------------------
 @st.cache_data(show_spinner=False, ttl=1800)
-def geocode_city(name: str, count: int = 10):
-    url = "https://geocoding-api.open-meteo.com/v1/search"
-    r = requests.get(url, params={"name": name, "count": count, "language": "en"})
-    r.raise_for_status()
-    data = r.json()
-    return data.get("results", []) or []
+def geocode_city(query: str, count: int = 10):
+    """
+    More robust geocoder:
+    - Accepts inputs like "City", "City, ST", or "City, ST, Country"
+    - If the first query returns nothing, tries helpful fallbacks
+    - Prefers matches whose admin1 (state/region) matches the hint
+    """
+    base_url = "https://geocoding-api.open-meteo.com/v1/search"
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    parts = [p.strip() for p in q.split(",") if p.strip()]
+    city = parts[0] if parts else ""
+    state_hint = parts[1] if len(parts) >= 2 else ""
+    country_hint = parts[2] if len(parts) >= 3 else ""
+
+    # Build attempts in order of likelihood
+    attempts = []
+    if city and state_hint and country_hint:
+        attempts = [f"{city}, {state_hint}, {country_hint}", f"{city}, {state_hint}", f"{city}"]
+    elif city and state_hint:
+        # If the "state" looks like a 2-letter US code, try adding US explicitly
+        if len(state_hint) == 2:
+            attempts = [f"{city}, {state_hint}, US", f"{city}, {state_hint}", f"{city}, US", city]
+        else:
+            attempts = [f"{city}, {state_hint}", f"{city}, {state_hint}, US", f"{city}, US", city]
+    else:
+        attempts = [q, f"{city}, US", city]
+
+    seen = set()
+    def try_once(name):
+        r = requests.get(base_url, params={"name": name, "count": count, "language": "en"}, timeout=10)
+        r.raise_for_status()
+        return r.json().get("results", []) or []
+
+    # Run attempts until we get results
+    results = []
+    for a in attempts:
+        a = a.strip()
+        if not a or a in seen:
+            continue
+        seen.add(a)
+        try:
+            res = try_once(a)
+            if res:
+                results = res
+                break
+        except Exception:
+            # ignore and continue trying fallbacks
+            pass
+
+    if not results:
+        return []
+
+    # Prefer matches whose admin1 (state) matches the hint, if provided
+    if state_hint:
+        s = state_hint.lower()
+        # expand common US state abbreviations to names for comparison
+        states = {
+            'al':'alabama','ak':'alaska','az':'arizona','ar':'arkansas','ca':'california','co':'colorado','ct':'connecticut',
+            'de':'delaware','fl':'florida','ga':'georgia','hi':'hawaii','id':'idaho','il':'illinois','in':'indiana',
+            'ia':'iowa','ks':'kansas','ky':'kentucky','la':'louisiana','me':'maine','md':'maryland','ma':'massachusetts',
+            'mi':'michigan','mn':'minnesota','ms':'mississippi','mo':'missouri','mt':'montana','ne':'nebraska','nv':'nevada',
+            'nh':'new hampshire','nj':'new jersey','nm':'new mexico','ny':'new york','nc':'north carolina','nd':'north dakota',
+            'oh':'ohio','ok':'oklahoma','or':'oregon','pa':'pennsylvania','ri':'rhode island','sc':'south carolina',
+            'sd':'south dakota','tn':'tennessee','tx':'texas','ut':'utah','vt':'vermont','va':'virginia','wa':'washington',
+            'wv':'west virginia','wi':'wisconsin','wy':'wyoming'
+        }
+        s_full = states.get(s, s)
+        filtered = [r for r in results if (r.get("admin1","").lower()==s_full or s_full in r.get("admin1","").lower())]
+        if filtered:
+            results = filtered
+
+    # If a country hint was provided, prefer that as well
+    if country_hint:
+        c = country_hint.lower()
+        filtered = [r for r in results if c in (r.get("country","").lower()) or c == (r.get("country_code","") or "").lower()]
+        if filtered:
+            results = filtered
+
+    return results
+
 
 @st.cache_data(show_spinner=False, ttl=600)
 def fetch_weather(lat: float, lon: float, tz: str, unit: str):
