@@ -140,13 +140,45 @@ def locate_by_ip():
 
 # ---------- Sidebar: query + unit toggle + autosuggest + geolocate ----------
 with st.sidebar:
+    # 0) default value lives in session_state
+    if "q" not in st.session_state:
+        st.session_state["q"] = "Berkeley, CA"
+
+    # 1) Units (unchanged)
+    cols = st.columns(2)
+    unit = st.session_state.get("unit", "C")
+    if cols[0].button("°C", use_container_width=True):
+        unit = "C"
+    if cols[1].button("°F", use_container_width=True):
+        unit = "F"
+    st.session_state["unit"] = unit
+
+    # 2) Use my location (set state BEFORE rendering text_input)
+    if st.button("📍 Use my location", help="IP-based location (no GPS)"):
+        ip_guess = locate_by_ip()
+        if ip_guess:
+            st.session_state["q"] = ip_guess   # set state first
+            st.rerun()                         # then rerun
+        else:
+            st.warning("Could not determine location.")
+
+    # 3) City input (bind to session state AFTER any possible update)
     st.write("City (you can add state/country, e.g. 'Concord, NC, US')")
     q = st.text_input(
-    "",
-    value=st.session_state.get("q", "Berkeley, CA"),
-    key="q",
-    placeholder="City, State, Country",
-)
+        "",
+        value=st.session_state["q"],  # value comes from session_state
+        key="q",
+        placeholder="City, State, Country",
+    )
+
+    # 4) Autosuggestions
+    suggestions = geocode_suggestions(q) if len(q.strip()) >= 2 else []
+    chosen = None
+    if suggestions:
+        labels = [city_label(c) for c in suggestions]
+        idx = st.selectbox("Matches", list(range(len(labels))), format_func=lambda i: labels[i])
+        chosen = suggestions[idx]
+
 
 
     cols = st.columns(2)
