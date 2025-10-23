@@ -166,13 +166,15 @@ with st.sidebar:
         chosen = suggestions[idx]
 
     # Geolocate
-    if st.button("📍 Use my location", help="IP-based location (no GPS)"):
+if st.button("📍 Use my location", help="IP-based location (no GPS)"):
     ip_guess = locate_by_ip()
     if ip_guess:
-        st.session_state["q"] = ip_guess   # update the bound input
-        st.rerun()                          # <-- modern API
+        st.session_state["q"] = ip_guess
+        st.rerun()
     else:
         st.warning("Could not determine location.")
+
+     
 
 
 # ---------- Resolve place ----------
